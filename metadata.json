@@ -1,0 +1,6 @@
+{
+  "name": "GoldPayments - Fintoc Payment Gateway & Bank",
+  "description": "Pasarela de pago bancaria con integración de Fintoc API, inicio de pagos por transferencia SPEI, Checkout Sessions y gestión GoldPaymentsBank.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
