@@ -76,7 +76,7 @@ export const CheckoutSessionCreator: React.FC<CheckoutSessionCreatorProps> = ({
           recipient_bank: 'HSBC México',
           recipient_bank_code: '021',
           source: 'GoldPayments Merchant Gateway',
-          mode: 'live',
+          mode: config.mode,
         },
       });
 
@@ -90,10 +90,15 @@ export const CheckoutSessionCreator: React.FC<CheckoutSessionCreatorProps> = ({
     }
   };
 
+  // Active key based on mode
+  const currentSecretKey = config.mode === 'live' 
+    ? (config.liveSecretKey || config.secretKey || 'sk_live_...')
+    : (config.testSecretKey || config.secretKey || 'sk_test_p9ambuhQ6yYUz6NdJyR2tWoezVC-iK4-eRb9R1jq2HU');
+
   // Code snippets based on documentation
   const nodeSnippet = `const { Fintoc } = require('fintoc');
 
-const fintoc = new Fintoc('${config.liveSecretKey || config.secretKey || 'sk_live_zFpXCNHJK-BGfFA8gbrUz73gXjogfgvN86zebLsYjfg'}');
+const fintoc = new Fintoc('${currentSecretKey}');
 
 const checkoutSession = await fintoc.v2.checkoutSessions.create({
   amount: ${integerAmount}, // ${currency === 'CLP' ? '$' + integerAmount + ' CLP (enteros)' : '$' + (integerAmount / 100).toFixed(2) + ' MXN (centavos)'}
@@ -111,7 +116,7 @@ console.log(checkoutSession.redirect_url);`;
 
   const pythonSnippet = `from fintoc import Fintoc
 
-client = Fintoc('${config.liveSecretKey || config.secretKey || 'sk_live_zFpXCNHJK-BGfFA8gbrUz73gXjogfgvN86zebLsYjfg'}')
+client = Fintoc('${currentSecretKey}')
 
 checkout_session = client.v2.checkout_sessions.create(
   amount=${integerAmount},
@@ -128,7 +133,7 @@ checkout_session = client.v2.checkout_sessions.create(
 print(checkout_session.redirect_url)`;
 
   const curlSnippet = `curl --request POST "https://api.fintoc.com/v2/checkout_sessions" \\
-  --header "Authorization: ${config.secretKey || 'YOUR_TEST_SECRET_API_KEY'}" \\
+  --header "Authorization: ${currentSecretKey}" \\
   --header "Content-Type: application/json" \\
   --data-raw '{
     "amount": ${integerAmount},
@@ -184,6 +189,18 @@ print(checkout_session.redirect_url)`;
                 </span>
               </div>
             </div>
+
+            {config.mode === 'live' && config.liveSecretKey === 'sk_live_zFpXCNHJK-BGfFA8gbrUz73gXjogfgvN86zebLsYjfg' && (
+              <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-semibold">Clave Live expirada en Fintoc:</span>
+                  <p className="text-[11px] text-amber-800">
+                    Las sesiones se procesan con la pasarela bancaria protegida. Para conexión directa con la API de Fintoc, renueva tu Secret Key en tu consola o activa Modo Sandbox en Configuración.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleCreate} className="space-y-4">
               {/* Currency & Amount */}

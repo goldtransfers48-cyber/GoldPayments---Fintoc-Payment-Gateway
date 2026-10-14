@@ -4,11 +4,11 @@ const LOCAL_STORAGE_KEY = 'goldpayments_fintoc_config_v1';
 
 export const DEFAULT_FINTOC_CONFIG: FintocConfig = {
   mode: 'live',
-  publicKey: 'pk_live_NAB1s9qvQxyZYyQfnAMzptjUzeTB-x1QVqdQG2dLN84',
-  secretKey: 'sk_live_zFpXCNHJK-BGfFA8gbrUz73gXjogfgvN86zebLsYjfg',
+  publicKey: 'pk_live_4M4BY8NRkb6zKzu1ogvcavRGQgyxYxrw_Wwnq-RMnZE',
+  secretKey: 'sk_live_kU5hws-fQz1ia4SQ9Gme9mJYkmocQxSjVeEJpusWvgA',
   webhookSecret: 'whsec_live_nexusbank_9a824f1c7d0b81e3',
-  livePublicKey: 'pk_live_NAB1s9qvQxyZYyQfnAMzptjUzeTB-x1QVqdQG2dLN84',
-  liveSecretKey: 'sk_live_zFpXCNHJK-BGfFA8gbrUz73gXjogfgvN86zebLsYjfg',
+  livePublicKey: 'pk_live_4M4BY8NRkb6zKzu1ogvcavRGQgyxYxrw_Wwnq-RMnZE',
+  liveSecretKey: 'sk_live_kU5hws-fQz1ia4SQ9Gme9mJYkmocQxSjVeEJpusWvgA',
   liveWebhookSecret: 'whsec_live_nexusbank_9a824f1c7d0b81e3',
   destinationAccount: '021650064944977732',
   destinationBank: 'HSBC México',
@@ -299,13 +299,13 @@ export async function simulateWebhookEvent(eventType: string, sessionId?: string
 // Validate credentials with Fintoc API
 export async function validateFintocCredentials(
   secretKey: string,
-  mode: 'test' | 'live'
-): Promise<{ valid: boolean; message: string; status?: number }> {
+  mode: 'live' = 'live'
+): Promise<{ valid: boolean; expired?: boolean; message: string; status?: number; docUrl?: string }> {
   try {
     const res = await fetch('/api/fintoc/validate-credentials', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secretKey, mode }),
+      body: JSON.stringify({ secretKey, mode: 'live' }),
     });
     return await res.json();
   } catch (err: any) {

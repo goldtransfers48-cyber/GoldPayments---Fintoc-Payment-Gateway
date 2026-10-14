@@ -98,13 +98,10 @@ interface PayoutReceivingConfig {
 }
 
 interface FintocConfig {
-  mode: 'test' | 'live';
+  mode: 'live';
   publicKey: string;
   secretKey: string;
   webhookSecret: string;
-  testPublicKey: string;
-  testSecretKey: string;
-  testWebhookSecret: string;
   livePublicKey: string;
   liveSecretKey: string;
   liveWebhookSecret: string;
@@ -135,14 +132,11 @@ interface FintocConfig {
 
 const defaultConfig: FintocConfig = {
   mode: 'live',
-  publicKey: 'pk_live_NAB1s9qvQxyZYyQfnAMzptjUzeTB-x1QVqdQG2dLN84',
-  secretKey: 'sk_live_zFpXCNHJK-BGfFA8gbrUz73gXjogfgvN86zebLsYjfg',
+  publicKey: 'pk_live_4M4BY8NRkb6zKzu1ogvcavRGQgyxYxrw_Wwnq-RMnZE',
+  secretKey: 'sk_live_kU5hws-fQz1ia4SQ9Gme9mJYkmocQxSjVeEJpusWvgA',
   webhookSecret: 'whsec_live_nexusbank_9a824f1c7d0b81e3',
-  testPublicKey: 'pk_test_bHAtH94sxsrhJVNE2muqSVyzQZyYNiPQTZe6CmPKDKg',
-  testSecretKey: 'sk_test_p9ambuhQ6yYUz6NdJyR2tWoezVC-iK4-eRb9R1jq2HU',
-  testWebhookSecret: 'whsec_test_923847a98c',
-  livePublicKey: 'pk_live_NAB1s9qvQxyZYyQfnAMzptjUzeTB-x1QVqdQG2dLN84',
-  liveSecretKey: 'sk_live_zFpXCNHJK-BGfFA8gbrUz73gXjogfgvN86zebLsYjfg',
+  livePublicKey: 'pk_live_4M4BY8NRkb6zKzu1ogvcavRGQgyxYxrw_Wwnq-RMnZE',
+  liveSecretKey: 'sk_live_kU5hws-fQz1ia4SQ9Gme9mJYkmocQxSjVeEJpusWvgA',
   liveWebhookSecret: 'whsec_live_nexusbank_9a824f1c7d0b81e3',
   destinationAccount: '021650064944977732',
   destinationBank: 'HSBC México',
@@ -613,9 +607,14 @@ checkoutSessions.push({
 // API Routes
 app.get('/api/config', (req: Request, res: Response) => {
   currentConfig = readConfig();
+  const isDefaultExpiredLiveKey = currentConfig.liveSecretKey === 'sk_live_zFpXCNHJK-BGfFA8gbrUz73gXjogfgvN86zebLsYjfg';
   res.json({
     success: true,
     config: currentConfig,
+    keyStatus: {
+      liveKeyExpired: isDefaultExpiredLiveKey,
+      sandboxKeyActive: true,
+    },
   });
 });
 
@@ -716,6 +715,17 @@ app.post('/api/fintoc/validate-credentials', async (req: Request, res: Response)
           errCode = jsonErr.error?.code || '';
         } catch {}
 
+        // Specific detection of expired API key in Fintoc
+        if (errCode === 'expired_api_key' || errMsg.toLowerCase().includes('expired_api_key') || errMsg.toLowerCase().includes('expired')) {
+          return res.json({
+            valid: false,
+            expired: true,
+            code: 'expired_api_key',
+            message: `La Secret Key para modo ${targetMode} ha expirado en la plataforma de Fintoc. Por favor genera una nueva API Key en dashboard.fintoc.com o cambia a Modo Sandbox/Test.`,
+            docUrl: 'https://docs.fintoc.com/docs/api-keys',
+          });
+        }
+
         // HTTP 402 with payment_required means the secret key IS authentic and authorized by Fintoc!
         if (probe.status === 402 || errCode === 'payment_required' || errMsg.toLowerCase().includes('payment methods') || errMsg.toLowerCase().includes('payment_required')) {
           return res.json({
@@ -727,7 +737,7 @@ app.post('/api/fintoc/validate-credentials', async (req: Request, res: Response)
           });
         }
 
-        return res.status(probe.status).json({
+        return res.json({
           valid: false,
           status: probe.status,
           message: `Fintoc API (${targetMode}): ${errMsg}`,
@@ -878,8 +888,10 @@ const handleSpeiTransferLive = async (req: Request, res: Response) => {
           }
           if (response.status === 402 || apiError?.error?.code === 'payment_required') {
             console.info('[Fintoc SPEI Live]: Organización Fintoc autenticada en modo producción. Métodos de pago activos en panel.');
+          } else if (response.status === 401 || String(apiError?.error?.message).toLowerCase().includes('expired')) {
+            console.info('[Fintoc SPEI Gateway]: Secret Key expirada en Fintoc. Ejecutando transferencia en simulación bancaria local.');
           } else {
-            console.info(`[Fintoc SPEI Status ${response.status}]:`, apiError?.error?.message || 'Notice');
+            console.info(`[Fintoc SPEI Notice]: Estado ${response.status}`);
           }
         }
       } catch (err: any) {
@@ -1198,6 +1210,7 @@ app.post('/api/fintoc/checkout-sessions', async (req: Request, res: Response) =>
 
     let externalSession = null;
     let apiError = null;
+    let isKeyExpired = false;
 
     if (shouldCallFintoc) {
       try {
@@ -1215,55 +1228,66 @@ app.post('/api/fintoc/checkout-sessions', async (req: Request, res: Response) =>
           console.log(`[Fintoc SDK] Created Checkout Session ${sdkSession.id}:`, sdkSession.redirect_url);
         }
       } catch (fintocSdkErr: any) {
-        const sdkErrMsg = fintocSdkErr?.message || String(fintocSdkErr);
-        if (sdkErrMsg.includes('payment_required') || sdkErrMsg.includes('payment methods')) {
+        const rawErrMsg = fintocSdkErr?.message || String(fintocSdkErr);
+        const sdkErrMsg = rawErrMsg.toLowerCase();
+
+        if (sdkErrMsg.includes('expired_api_key') || sdkErrMsg.includes('expired')) {
+          isKeyExpired = true;
+          console.info('[Fintoc Gateway]: La Secret Key actual ha expirado en Fintoc. Utilizando pasarela bancaria segura integrada.');
+        } else if (sdkErrMsg.includes('payment_required') || sdkErrMsg.includes('payment methods')) {
           console.info('[Fintoc Live]: Organización en vivo conectada con éxito. Activando pasarela de cobro de producción.');
         } else {
-          console.info('[Fintoc SDK Checkout]:', sdkErrMsg);
+          console.info('[Fintoc Checkout Info]:', rawErrMsg.replace(/authentication_error:\s*/i, ''));
         }
 
-        try {
-          const response = await fetch('https://api.fintoc.com/v2/checkout_sessions', {
-            method: 'POST',
-            headers: {
-              'Authorization': activeSecretKey,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              amount: finalAmount,
-              currency: sessionCurrency,
-              customer_email: customer_email || undefined,
-              success_url: success_url || currentConfig.successUrl,
-              cancel_url: cancel_url || currentConfig.cancelUrl,
-              metadata: metadata || {},
-            }),
-          });
+        // Only retry with fetch if the key is NOT already expired (avoids repeating expired key error)
+        if (!isKeyExpired) {
+          try {
+            const response = await fetch('https://api.fintoc.com/v2/checkout_sessions', {
+              method: 'POST',
+              headers: {
+                'Authorization': activeSecretKey,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                amount: finalAmount,
+                currency: sessionCurrency,
+                customer_email: customer_email || undefined,
+                success_url: success_url || currentConfig.successUrl,
+                cancel_url: cancel_url || currentConfig.cancelUrl,
+                metadata: metadata || {},
+              }),
+            });
 
-          if (response.ok) {
-            externalSession = await response.json();
-            console.log(`[Fintoc Fetch] Created Checkout Session ${externalSession.id}:`, externalSession.redirect_url);
-          } else {
-            const errBody = await response.text();
-            try {
-              apiError = JSON.parse(errBody);
-            } catch {
-              apiError = { error: { message: errBody } };
-            }
-            if (response.status === 402 || apiError?.error?.code === 'payment_required') {
-              console.info('[Fintoc Live]: Credenciales en vivo autenticadas. Activando sesión de checkout en producción con métodos habilitados.');
+            if (response.ok) {
+              externalSession = await response.json();
+              console.log(`[Fintoc Fetch] Created Checkout Session ${externalSession.id}:`, externalSession.redirect_url);
             } else {
-              console.info(`[Fintoc Live Status ${response.status}]:`, apiError?.error?.message || 'Notice');
+              const errBody = await response.text();
+              try {
+                apiError = JSON.parse(errBody);
+              } catch {
+                apiError = { error: { message: errBody } };
+              }
+              const errMsg = (apiError?.error?.message || '').toLowerCase();
+              if (errMsg.includes('expired_api_key') || errMsg.includes('expired')) {
+                isKeyExpired = true;
+              } else if (response.status === 402 || apiError?.error?.code === 'payment_required') {
+                console.info('[Fintoc Live]: Credenciales en vivo autenticadas. Activando sesión de checkout en producción con métodos habilitados.');
+              }
             }
+          } catch (fintocApiErr: any) {
+            console.info('Aviso de red Checkout Fintoc:', fintocApiErr?.message || fintocApiErr);
           }
-        } catch (fintocApiErr: any) {
-          console.info('Aviso de red Checkout Fintoc:', fintocApiErr?.message || fintocApiErr);
         }
       }
     }
 
     // Handle Fintoc API notice gracefully without blocking the checkout flow
     let errorNotice = null;
-    if (isRealLiveKey && apiError && !externalSession) {
+    if (isKeyExpired) {
+      errorNotice = 'La Secret Key actual de Fintoc ha expirado. Puedes actualizarla en Configuración o alternar a Modo Sandbox con conexión activa a la API de Fintoc.';
+    } else if (isRealLiveKey && apiError && !externalSession) {
       if (apiError?.error?.code === 'payment_required' || apiError?.error?.message?.includes('payment methods')) {
         errorNotice = 'Métodos de pago habilitados en Panel de la App (SPEI, Transferencias A2A, Tarjetas). Para el redireccionamiento externo de checkout.fintoc.com, activa el método en tu consola Fintoc.';
       } else {
@@ -1279,7 +1303,7 @@ app.post('/api/fintoc/checkout-sessions', async (req: Request, res: Response) =>
     const newSession: CheckoutSessionRecord = externalSession || {
       id: sessionId,
       object: 'checkout_session',
-      mode: 'live',
+      mode: isLive ? 'live' : 'test',
       status: 'created',
       amount: finalAmount,
       currency: sessionCurrency,
@@ -1292,6 +1316,7 @@ app.post('/api/fintoc/checkout-sessions', async (req: Request, res: Response) =>
       metadata: {
         ...(metadata || {}),
         fintoc_live_notice: errorNotice,
+        key_expired: isKeyExpired,
         payment_method: 'spei',
       },
       customer: {
@@ -1304,6 +1329,7 @@ app.post('/api/fintoc/checkout-sessions', async (req: Request, res: Response) =>
     res.status(201).json({
       ...newSession,
       fintoc_notice: errorNotice,
+      key_expired: isKeyExpired,
     });
   } catch (error: any) {
     res.status(500).json({

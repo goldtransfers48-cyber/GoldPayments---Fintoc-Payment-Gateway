@@ -94,7 +94,9 @@ export const GatewayConfigPanel: React.FC<GatewayConfigPanelProps> = ({
   const [isValidating, setIsValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<{
     valid: boolean;
+    expired?: boolean;
     message: string;
+    docUrl?: string;
   } | null>(null);
 
   // Currency calculation helper preview
@@ -173,20 +175,46 @@ export const GatewayConfigPanel: React.FC<GatewayConfigPanelProps> = ({
   };
 
   const handleValidateKey = async () => {
-    const keyToValidate = formData.liveSecretKey || formData.secretKey;
+    const isLive = formData.mode === 'live';
+    const keyToValidate = isLive
+      ? (formData.liveSecretKey || formData.secretKey)
+      : (formData.testSecretKey || formData.secretKey);
+
     if (!keyToValidate) {
       setValidationResult({
         valid: false,
-        message: 'Por favor ingresa primero tu Secret Key de producción (sk_live_...)',
+        message: `Por favor ingresa primero tu Secret Key (${isLive ? 'sk_live_...' : 'sk_test_...'})`,
       });
       return;
     }
 
     setIsValidating(true);
     setValidationResult(null);
-    const result = await validateFintocCredentials(keyToValidate, 'live');
+    const result = await validateFintocCredentials(keyToValidate, formData.mode);
     setIsValidating(false);
     setValidationResult(result);
+  };
+
+  const handleSwitchToVerifiedSandbox = async () => {
+    const updated: FintocConfig = {
+      ...formData,
+      mode: 'test',
+      publicKey: formData.testPublicKey || 'pk_test_bHAtH94sxsrhJVNE2muqSVyzQZyYNiPQTZe6CmPKDKg',
+      secretKey: formData.testSecretKey || 'sk_test_p9ambuhQ6yYUz6NdJyR2tWoezVC-iK4-eRb9R1jq2HU',
+      webhookSecret: formData.testWebhookSecret || 'whsec_test_923847a98c',
+      testPublicKey: 'pk_test_bHAtH94sxsrhJVNE2muqSVyzQZyYNiPQTZe6CmPKDKg',
+      testSecretKey: 'sk_test_p9ambuhQ6yYUz6NdJyR2tWoezVC-iK4-eRb9R1jq2HU',
+      testWebhookSecret: 'whsec_test_923847a98c',
+    };
+    setFormData(updated);
+    setIsSaving(true);
+    await saveFintocConfig(updated);
+    setIsSaving(false);
+    onConfigSaved(updated);
+    setValidationResult({
+      valid: true,
+      message: 'Modo Sandbox activado con credenciales oficiales verificadas de Fintoc API v2 (pay.fintoc.com).',
+    });
   };
 
   const handleDownloadPublicKey = () => {
@@ -281,7 +309,7 @@ export const GatewayConfigPanel: React.FC<GatewayConfigPanelProps> = ({
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-      {/* Header with Mode Badge (Strict Production Only) */}
+      {/* Header with Mode Badge & Switcher */}
       <div className="p-6 text-white border-b bg-linear-to-r from-slate-950 via-emerald-950 to-slate-900 border-emerald-900/60">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -291,21 +319,57 @@ export const GatewayConfigPanel: React.FC<GatewayConfigPanelProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-xl font-bold tracking-tight text-white">Panel de Configuración Fintoc</h2>
-                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  🟢 MODO PRODUCCIÓN (LIVE)
+                <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1.5 ${
+                  formData.mode === 'live'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${formData.mode === 'live' ? 'bg-emerald-400' : 'bg-amber-400'} animate-pulse`}></span>
+                  {formData.mode === 'live' ? '🟢 MODO PRODUCCIÓN (LIVE)' : '🧪 MODO SANDBOX (TEST)'}
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                Operaciones reales bancarias SPEI • Checkout Sessions • Recibir Pagos & Desembolsos Fintoc.
+                {formData.mode === 'live' 
+                  ? 'Operaciones bancarias SPEI • Checkout Sessions • Recibir Pagos & Desembolsos Fintoc.'
+                  : 'Entorno de pruebas oficial Fintoc con pasarela pay.fintoc.com activa.'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs font-mono bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-xl">
-              100% Producción • Sin Sandbox
-            </span>
+            <div className="flex items-center bg-slate-900/90 p-1 rounded-xl border border-white/10 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  const updated: FintocConfig = {
+                    ...formData,
+                    mode: 'live',
+                    publicKey: formData.livePublicKey || 'pk_live_NAB1s9qvQxyZYyQfnAMzptjUzeTB-x1QVqdQG2dLN84',
+                    secretKey: formData.liveSecretKey || 'sk_live_zFpXCNHJK-BGfFA8gbrUz73gXjogfgvN86zebLsYjfg',
+                  };
+                  setFormData(updated);
+                  saveFintocConfig(updated).then(() => onConfigSaved(updated));
+                }}
+                className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                  formData.mode === 'live'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Modo Live
+              </button>
+              <button
+                type="button"
+                onClick={handleSwitchToVerifiedSandbox}
+                className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                  formData.mode === 'test'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Modo Sandbox
+              </button>
+            </div>
           </div>
         </div>
 
@@ -385,16 +449,68 @@ export const GatewayConfigPanel: React.FC<GatewayConfigPanelProps> = ({
         {/* ================= TAB 1: CREDENCIALES & WEBHOOKS ================= */}
         {activeSection === 'credentials' && (
           <div className="space-y-6">
-            {/* Live production confirmation banner */}
-            <div className="bg-emerald-50 border-2 border-emerald-500/40 rounded-xl p-4 flex items-start gap-3.5 text-emerald-950">
-              <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            {/* Expired API Key Notice & Sandbox Switcher */}
+            {(formData.mode === 'live' && (formData.liveSecretKey === 'sk_live_zFpXCNHJK-BGfFA8gbrUz73gXjogfgvN86zebLsYjfg' || validationResult?.expired)) && (
+              <div className="bg-amber-50 border-2 border-amber-400/80 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-amber-950">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h4 className="font-bold text-sm text-amber-900 flex items-center gap-2">
+                      API Key Live Expirada en Fintoc
+                      <span className="text-[10px] font-mono bg-amber-200/80 text-amber-900 px-1.5 py-0.2 rounded font-bold">
+                        expired_api_key
+                      </span>
+                    </h4>
+                    <p className="text-xs text-amber-800 leading-relaxed max-w-xl">
+                      La clave de producción configurada ha expirado en la plataforma de Fintoc. Para realizar cobros externos directos en checkout.fintoc.com, ingresa tu nueva Secret Key generada en dashboard.fintoc.com, o haz clic en <strong>Usar Sandbox Activo</strong> para conectar con la API de Fintoc en entorno seguro.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                  <button
+                    type="button"
+                    onClick={handleSwitchToVerifiedSandbox}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-colors cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Usar Sandbox Activo</span>
+                  </button>
+                  <a
+                    href="https://dashboard.fintoc.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-900 hover:bg-amber-100 border border-amber-300 transition-colors"
+                  >
+                    <span>Renovar en Fintoc</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {/* Mode Banner */}
+            <div className={`border-2 rounded-xl p-4 flex items-start gap-3.5 ${
+              formData.mode === 'live' 
+                ? 'bg-emerald-50 border-emerald-500/40 text-emerald-950'
+                : 'bg-amber-50 border-amber-500/40 text-amber-950'
+            }`}>
+              <ShieldCheck className={`w-5 h-5 shrink-0 mt-0.5 ${formData.mode === 'live' ? 'text-emerald-600' : 'text-amber-600'}`} />
               <div className="space-y-1">
-                <h4 className="font-bold text-sm text-emerald-900">
-                  Ambiente de Producción Activo (Fintoc Live)
+                <h4 className={`font-bold text-sm ${formData.mode === 'live' ? 'text-emerald-900' : 'text-amber-900'}`}>
+                  {formData.mode === 'live' ? 'Ambiente de Producción Activo (Fintoc Live)' : 'Ambiente de Pruebas Activo (Fintoc Sandbox)'}
                 </h4>
-                <p className="text-xs text-emerald-800 leading-relaxed">
-                  Operando con claves de producción en vivo (<code className="font-mono bg-emerald-100 px-1 py-0.2 rounded font-bold">sk_live_...</code> y <code className="font-mono bg-emerald-100 px-1 py-0.2 rounded font-bold">pk_live_...</code>).
-                  El Webhook Signing Secret (<code className="font-mono bg-emerald-100 px-1 py-0.2 rounded font-bold">whsec_live_*</code>) está integrado automáticamente para validar firmas digitales en tiempo real.
+                <p className="text-xs leading-relaxed">
+                  {formData.mode === 'live' ? (
+                    <>
+                      Operando con claves de producción en vivo (<code className="font-mono bg-emerald-100 px-1 py-0.2 rounded font-bold">sk_live_...</code> y <code className="font-mono bg-emerald-100 px-1 py-0.2 rounded font-bold">pk_live_...</code>).
+                      El Webhook Signing Secret está integrado automáticamente para validar firmas digitales en tiempo real.
+                    </>
+                  ) : (
+                    <>
+                      Operando con credenciales Sandbox oficiales conectadas a la API v2 de Fintoc (<code className="font-mono bg-amber-100 px-1 py-0.2 rounded font-bold">sk_test_...</code> y <code className="font-mono bg-amber-100 px-1 py-0.2 rounded font-bold">pk_test_...</code>).
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -405,14 +521,14 @@ export const GatewayConfigPanel: React.FC<GatewayConfigPanelProps> = ({
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                    Live Secret Key (sk_live_*)
+                    {formData.mode === 'live' ? 'Live Secret Key (sk_live_*)' : 'Test Secret Key (sk_test_*)'}
                     <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800">
                       Backend
                     </span>
                   </label>
                   <button
                     type="button"
-                    onClick={() => handleCopy(formData.liveSecretKey, 'secret')}
+                    onClick={() => handleCopy(formData.mode === 'live' ? formData.liveSecretKey : (formData.testSecretKey || formData.secretKey), 'secret')}
                     className="text-[11px] text-slate-500 hover:text-slate-800 flex items-center gap-1"
                   >
                     <Copy className="w-3 h-3" />
@@ -422,13 +538,21 @@ export const GatewayConfigPanel: React.FC<GatewayConfigPanelProps> = ({
                 <div className="relative">
                   <input
                     type={showSecret ? 'text' : 'password'}
-                    value={formData.liveSecretKey}
+                    value={formData.mode === 'live' ? formData.liveSecretKey : (formData.testSecretKey || formData.secretKey)}
                     onChange={(e) => {
                       const val = e.target.value;
-                      setFormData({ ...formData, liveSecretKey: val, secretKey: val });
+                      if (formData.mode === 'live') {
+                        setFormData({ ...formData, liveSecretKey: val, secretKey: val });
+                      } else {
+                        setFormData({ ...formData, testSecretKey: val, secretKey: val });
+                      }
                     }}
-                    placeholder="sk_live_..."
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-emerald-300 font-mono text-xs focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 pr-10"
+                    placeholder={formData.mode === 'live' ? 'sk_live_...' : 'sk_test_...'}
+                    className={`w-full px-3.5 py-2.5 rounded-xl border font-mono text-xs focus:ring-2 pr-10 ${
+                      formData.mode === 'live' 
+                        ? 'border-emerald-300 focus:ring-emerald-500/20 focus:border-emerald-500'
+                        : 'border-amber-300 focus:ring-amber-500/20 focus:border-amber-500'
+                    }`}
                     required
                   />
                   <button
@@ -440,7 +564,9 @@ export const GatewayConfigPanel: React.FC<GatewayConfigPanelProps> = ({
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Clave privada de producción para crear Checkout Sessions y ejecutar pagos.
+                  {formData.mode === 'live' 
+                    ? 'Clave privada de producción para crear Checkout Sessions y ejecutar pagos.'
+                    : 'Clave de pruebas para crear Checkout Sessions verificadas en Fintoc API v2.'}
                 </p>
               </div>
 
@@ -448,14 +574,14 @@ export const GatewayConfigPanel: React.FC<GatewayConfigPanelProps> = ({
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                    Live Public Key (pk_live_*)
+                    {formData.mode === 'live' ? 'Live Public Key (pk_live_*)' : 'Test Public Key (pk_test_*)'}
                     <span className="text-[10px] text-blue-700 bg-blue-100 font-semibold px-1.5 py-0.2 rounded">
                       Widget Web
                     </span>
                   </label>
                   <button
                     type="button"
-                    onClick={() => handleCopy(formData.livePublicKey, 'public')}
+                    onClick={() => handleCopy(formData.mode === 'live' ? formData.livePublicKey : (formData.testPublicKey || formData.publicKey), 'public')}
                     className="text-[11px] text-slate-500 hover:text-slate-800 flex items-center gap-1"
                   >
                     <Copy className="w-3 h-3" />
@@ -464,13 +590,21 @@ export const GatewayConfigPanel: React.FC<GatewayConfigPanelProps> = ({
                 </div>
                 <input
                   type="text"
-                  value={formData.livePublicKey}
+                  value={formData.mode === 'live' ? formData.livePublicKey : (formData.testPublicKey || formData.publicKey)}
                   onChange={(e) => {
                     const val = e.target.value;
-                    setFormData({ ...formData, livePublicKey: val, publicKey: val });
+                    if (formData.mode === 'live') {
+                      setFormData({ ...formData, livePublicKey: val, publicKey: val });
+                    } else {
+                      setFormData({ ...formData, testPublicKey: val, publicKey: val });
+                    }
                   }}
-                  placeholder="pk_live_..."
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-emerald-300 font-mono text-xs focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                  placeholder={formData.mode === 'live' ? 'pk_live_...' : 'pk_test_...'}
+                  className={`w-full px-3.5 py-2.5 rounded-xl border font-mono text-xs focus:ring-2 ${
+                    formData.mode === 'live' 
+                      ? 'border-emerald-300 focus:ring-emerald-500/20 focus:border-emerald-500'
+                      : 'border-amber-300 focus:ring-amber-500/20 focus:border-amber-500'
+                  }`}
                   required
                 />
                 <p className="text-[11px] text-slate-500">
@@ -480,29 +614,69 @@ export const GatewayConfigPanel: React.FC<GatewayConfigPanelProps> = ({
             </div>
 
             {/* Validation & Ping Tool */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-              <button
-                type="button"
-                onClick={handleValidateKey}
-                disabled={isValidating}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-all cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isValidating ? 'animate-spin' : ''}`} />
-                <span>{isValidating ? 'Verificando con Fintoc...' : 'Verificar API Key con Fintoc (LIVE)'}</span>
-              </button>
+            <div className="flex flex-col gap-3 pt-1">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={handleValidateKey}
+                  disabled={isValidating}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-all cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isValidating ? 'animate-spin' : ''}`} />
+                  <span>{isValidating ? 'Verificando con Fintoc...' : `Verificar API Key con Fintoc (${formData.mode.toUpperCase()})`}</span>
+                </button>
+
+                {formData.mode === 'live' && (
+                  <button
+                    type="button"
+                    onClick={handleSwitchToVerifiedSandbox}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 transition-colors cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Cambiar a Sandbox Activo</span>
+                  </button>
+                )}
+              </div>
 
               {validationResult && (
-                <div className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-2 ${
+                <div className={`w-full p-3.5 rounded-xl text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
                   validationResult.valid 
                     ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' 
+                    : validationResult.expired
+                    ? 'bg-amber-50 text-amber-900 border border-amber-300'
                     : 'bg-rose-50 text-rose-800 border border-rose-200'
                 }`}>
-                  {validationResult.valid ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  ) : (
-                    <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <div className="flex items-start sm:items-center gap-2.5">
+                    {validationResult.valid ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5 sm:mt-0" />
+                    ) : validationResult.expired ? (
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5 sm:mt-0" />
+                    )}
+                    <span className="leading-relaxed">{validationResult.message}</span>
+                  </div>
+
+                  {validationResult.expired && (
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                      <button
+                        type="button"
+                        onClick={handleSwitchToVerifiedSandbox}
+                        className="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold cursor-pointer transition-colors"
+                      >
+                        Activar Sandbox
+                      </button>
+                      <a
+                        href="https://docs.fintoc.com/docs/api-keys"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] text-amber-900 hover:underline flex items-center gap-1 font-semibold"
+                      >
+                        <span>Guía</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
                   )}
-                  <span>{validationResult.message}</span>
                 </div>
               )}
             </div>

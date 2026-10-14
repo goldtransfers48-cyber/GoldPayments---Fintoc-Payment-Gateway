@@ -23,7 +23,7 @@ export interface PayoutReceivingConfig {
 }
 
 export interface FintocConfig {
-  mode: 'live' | 'test';
+  mode: 'live';
   // Active production keys
   publicKey: string;
   secretKey: string;
@@ -32,10 +32,6 @@ export interface FintocConfig {
   livePublicKey: string;
   liveSecretKey: string;
   liveWebhookSecret: string;
-  // Optional test fallback fields
-  testPublicKey?: string;
-  testSecretKey?: string;
-  testWebhookSecret?: string;
   // General parameters
   country: 'CL' | 'MX';
   currency: 'CLP' | 'MXN';
